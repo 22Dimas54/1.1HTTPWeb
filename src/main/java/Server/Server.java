@@ -1,40 +1,69 @@
 package Server;
 
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+
 public class Server {
-    private static final int PORT = 9999;
-    private static final int SIZE_POOL = 9999;
+    private static final int SIZE_POOL = 64;
+    private static final String PUBLIC_PATH = "public";
     private static final int COUNT_PARAMETERS = 3;
-    private final List validPaths = List.of("/index.html", "/spring.svg", "/spring.png", "/resources.html", "/styles.css", "/app.js",
-            "/links.html", "/forms.html", "/classic.html", "/events.html", "/events.js");
+    private List validPaths;
 
-    public List getValidPaths() {
-        return validPaths;
-    }
-
-    public void start() {
+    public void listen(int port) {
         ExecutorService executorService = Executors.newFixedThreadPool(SIZE_POOL);
-        try (final var serverSocket = new ServerSocket(PORT)) {
+        try (final var serverSocket = new ServerSocket(port)) {
+            fillValidPath();
             while (true) {
                 try {
                     final var socket = serverSocket.accept();
-                    ClientHandler clientHandler = new ClientHandler(socket, this);
-                    executorService.submit(clientHandler);
+                    System.out.println("Server is listening");
+                    executorService.execute(() -> handle(socket));
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void fillValidPath() {
+        validPaths = new ArrayList();
+        Arrays.asList(new File(PUBLIC_PATH).listFiles()).stream()
+                .forEach(e -> validPaths.add("/" + e.getName()));
+    }
+
+    private void handle(Socket socket) {
+        try (final var in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             final var out = new BufferedOutputStream(socket.getOutputStream());
+             socket) {
+            final String requestLine = in.readLine();
+            System.out.printf("Поток %s обрабатывает запрос %s", Thread.currentThread().getName(), requestLine);
+            final var parts = requestLine.split(" ");
+            if (parts.length != COUNT_PARAMETERS) {
+                return;
+            }
+            final var path = parts[1];
+            if (!validPaths.contains(path) || requestLine.equals("favicon.ico")) {
+                failedConnection(out);
+                return;
+            }
+            final var filePath = Path.of(".", PUBLIC_PATH, path);
+            final var mimeType = Files.probeContentType(filePath);
+            if (path.equals("/classic.html")) {
+                successfulConnectionWithLabel(out, filePath, mimeType);
+            } else {
+                successfulConnection(out, filePath, mimeType);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -93,13 +122,4 @@ public class Server {
         }
     }
 
-    public void matchingParameters(String[] strings, Socket socket) {
-        if (strings.length != COUNT_PARAMETERS) {
-            try {
-                socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-    }
 }

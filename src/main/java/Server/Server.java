@@ -1,8 +1,12 @@
 package Server;
 
+import org.apache.http.NameValuePair;
+import org.apache.http.client.utils.URIBuilder;
+
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -18,6 +22,7 @@ import java.util.concurrent.Executors;
 public class Server {
     private static final int SIZE_POOL = 64;
     private static final String PUBLIC_PATH = "public";
+    private static final String NAME_PARAM = "value";
     private static final int COUNT_PARAMETERS = 3;
     private List validPaths;
     public static final String GET = "GET";
@@ -71,7 +76,7 @@ public class Server {
 
             // читаем request line
             final var requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
-            if (requestLine.length != 3) {
+            if (requestLine.length != COUNT_PARAMETERS) {
                 badRequest(out);
                 return;
             }
@@ -106,10 +111,10 @@ public class Server {
 
             final var headersBytes = in.readNBytes(headersEnd - headersStart);
             final var headers = Arrays.asList(new String(headersBytes).split("\r\n"));
-            final var request = new Request(method, headers, null, path);
+            Request request = null;
 
-            System.out.println(request);
-
+            URIBuilder uriBuilder = new URIBuilder(path);
+            final var queryParams = uriBuilder.getQueryParams();
             // для GET тела нет
             if (!method.equals(GET)) {
                 in.skip(headersDelimiter.length);
@@ -120,11 +125,24 @@ public class Server {
                     final var bodyBytes = in.readNBytes(length);
 
                     final var body = new String(bodyBytes);
+
+                    /*final var queryParams = URLEncodedUtils.parse(path, Charset.forName("UTF-8"));
+                    В задаче сказано использовать URLEncodedUtils, но в документации написано
+                    он устаревший и рекомендовано использовать URIBuilder, поэтому решил работать с ним
+                    */
+                    request = new Request(method, headers, body, path, queryParams);
                     System.out.println(body);
                 }
+            } else {
+                request = new Request(method, headers, null, path, queryParams);
             }
 
-            if (validPaths.contains(request.getPath()) ) {
+            System.out.println(request);
+            System.out.println(request.getQueryParams());
+            System.out.println(request.getQueryParam(NAME_PARAM));
+
+
+            if (validPaths.contains(request.getPath())) {
                 final var filePath = Path.of(".", PUBLIC_PATH, request.getPath());
                 final var mimeType = Files.probeContentType(filePath);
                 if (path.equals("/classic.html")) {
@@ -135,19 +153,26 @@ public class Server {
             }
 
             var methodMap = allHandlers.get(request.getMethod());
-            if (methodMap==null) {
+            if (methodMap == null) {
                 notFound(out);
                 return;
             }
-            var handler = methodMap.get(request.getPath());
-            if (handler==null) {
+            Handler handler = null;
+            if (queryParams.size() != 0) {
+                handler = methodMap.get(uriBuilder.getPath());
+            } else {
+                handler = methodMap.get(request.getPath());
+            }
+            if (handler == null) {
                 notFound(out);
                 return;
             }
 
-            handler.handle(request,out);
+            handler.handle(request, out);
 
         } catch (IOException e) {
+            e.printStackTrace();
+        } catch (URISyntaxException e) {
             e.printStackTrace();
         }
     }

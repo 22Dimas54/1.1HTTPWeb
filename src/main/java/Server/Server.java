@@ -12,7 +12,7 @@ public class Server {
     public void listen(int port) {
         ExecutorService executorService = Executors.newFixedThreadPool(SIZE_POOL);
         try (final var serverSocket = new ServerSocket(port)) {
-            var handler = new Handler();
+            final var handler = new Handler();
             while (true) {
                 try {
                     final var socket = serverSocket.accept();
